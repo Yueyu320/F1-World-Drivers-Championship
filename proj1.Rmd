@@ -1,0 +1,261 @@
+---
+title: "Statisitcal Programming - Project 1"
+output: rmarkdown::html_document
+author: Camilla Yu
+---
+
+Due on Friday, October 15th by 5:00 pm (17:00).
+
+Before you start be sure to read through *all* of the rules and instructions in the `README.md`.
+
+<br/>
+
+### Data
+
+```{r}
+library(tidyverse)
+library(ggplot2)
+library(viridis)
+library(ggpubr)
+f1 = readRDS(file="data/f1.rds")
+```
+
+<br/>
+
+### Task 1 - Tidy the data
+
+#### Write up
+
+After viewing the original data using `View` function, I found that all the 
+variables that we are interested in are inside of the `Race` list. So, I 
+selected the list `Race` using dollar sign. Now, we need to expand wider and also
+longer to find those variables, so I chose to use `hoist` function to rectangle 
+the subset of the data and selecting some specific columns. By viewing the 
+original data, we could directly extract `race_name`, `round`, `date` variables
+since they are on the next level of the list inside of `Race` list and they 
+are not list types. And there are also some variables are inside of the 
+`Results` list, so at first we need to store the `Results` list into a `result` 
+variable, and then use `unnest_longer` function to expand all the 
+lists(observations) inside of the `Results` list. After that, we could use 
+`hoist` function again to directly extract `position`, `points` and `positionText` 
+variables. And because `givenName`, `familyName` and `constructor` variables are 
+inside of another `Driver` or `Constructor` list, we need to use `c()` to specify 
+the next list we need to look at and then extract the variables we are 
+interested in. After extracting all the variables, we need to create a new 
+variable `driver` using the value of `givenName` and `familyName` by pasting 
+them together. And for `position` variable, we need to check the `positionText` 
+first to make sure that the driver actually finished the race and then assign the 
+value of `position` to the variable `position` or assign NA otherwise. 
+What's more, we need to transfer the data type for `round` and `points` to 
+integer type, and transfer `date` to date type. Finally, we select all the 
+variables we are interested in and assign it a new name `f1_data` and print out 
+the first 10 rows of the data.
+
+#### Code
+
+```{r task1}
+f1_data <- tibble::tibble(
+  #Select the specific list 'Race' that contains variables we are interested in
+  Race = f1$MRData$RaceTable$Races
+) %>% 
+  #Pipe the target list to hoist function to rectangle the subset of the data
+  hoist(
+    Race,
+    race_name = "raceName",
+    round = "round",
+    date = "date",
+    results = "Results"
+  ) %>% 
+  #Expand all the lists(observations) inside of the 'results' list 
+  select(-Race) %>%
+  unnest_longer(results) %>%
+  hoist(results,
+        position = "position",
+        points = "points",
+        position_text = "positionText",
+        #Extract 'givenName' from list 'Driver'
+        givenName = c("Driver", "givenName"),
+        familyName = c("Driver", "familyName"),
+        constructor = c("Constructor", "name")
+  ) %>%
+  #Create 'driver' variable by pasting given name and family name together
+  mutate(driver = paste(givenName, familyName),
+         #Fill the variable 'position' using NA if the driver didn't finish the 
+         #race by checking the position_text 
+         position = ifelse(position_text == position, 
+                           as.integer(position), NA),
+         #Transfer 'round' and 'points' variables to integer type 
+         round = as.integer(round),
+         points = as.integer(points),
+         #Transfer 'date' variable to date type
+         date = as.Date(date)) %>%
+  #Remove uninterested columns from the dataset
+  select(-c(givenName, familyName, position_text, results))
+#Show the first 10 rows
+head(f1_data, n =10)
+```
+
+<br/>
+
+### Task 2 - Drivers' Championship
+
+#### Write up
+
+At first, I focused on calculating the total points earned from all rounds for 
+each driver. Because we are interested in the total points instead of the points 
+for each round, we need to group `driver` variable first to combine all the 
+information together for each driver so that we could have distinct names for 
+each driver. Then we could use `summarise` function to sum all the points earned
+from each round together for each driver as total points. Then, by arranging 
+the values for total points in a decreasing order, we could find out who are the 
+top drivers. 
+
+Then I focused on the position for each round for each driver. By extracting 
+values from position as the value for variables extracted from round, we could
+get 17 different columns representing each round and the corresponding position
+values for each round. Finally, I combined two data sets together and the order
+is arranged by total points in a decreasing order. 
+
+#### Code
+
+```{r task2}
+total_points <- f1_data %>%
+  #Group by driver to combine information/points together for each driver
+  group_by(driver) %>%
+  #Sum all the points got from all rounds for each driver 
+  summarise(points_total = sum(points)) %>%
+  #Arrange the total points in a decreasing order 
+  arrange(desc(points_total))
+finish_position <- f1_data %>%
+  select(driver, round, position) %>%
+  #Extract values from position as the value of variables extracted from round
+  pivot_wider(., id_cols = driver, 
+              names_from = round,
+              values_from = position)
+#Use left_join function to combine two data sets together 
+championship <- left_join(total_points, finish_position, by = "driver")
+championship
+```
+
+<br/>
+
+### Task 3 - Cumulative Constructors
+
+#### Write up
+
+At first, we need to group by `race_name`, `constructor` and `round` to combine
+information together for each constructor in each round. Then, we first sum all
+the points earned by each constructor for each round and then arrange the order
+for round from the earliest to oldest to make sure we could calculate for the 
+cumulative points. Then, we need to group by `constructor` to calculate 
+cumulative points earned by each round for each constructor. Finally, I extract 
+values from the cumulative points as the value for variables extracted from 
+`race_name` as the name for each column, and arrange the value for the last 
+column in a decreasing order.
+
+#### Code
+
+```{r task3}
+constructor_table <- f1_data %>%
+  group_by(race_name, constructor, round) %>%
+  #Calculate total points earned for each round for each constructor
+  summarise(points2 = sum(points), .groups = 'drop') %>%
+  #Arrange the order of round/race_name from earliest to oldest 
+  arrange(round) %>%
+  group_by(constructor) %>%
+  #Calculate the cumulative points earned for each constructor 
+  mutate(sum_points = cumsum(points2)) %>%
+  #Extract values from cumulative points as the value for variables extracted 
+  #from race_name
+  pivot_wider(., id_cols = constructor, 
+              names_from = race_name,
+              values_from = sum_points) %>%
+  #Arrange the value from the last column in a decreasing order 
+  arrange(desc(.[, dim(.)[2]]))
+constructor_table
+```
+
+<br/>
+
+### Task 4 - Visualization
+
+#### Write up
+
+To better show the overall performance for each constructor and driver over the 
+course of the 2020F1 season, I chose to use cumulative points for each round as 
+y-axis and round values as x-axis so that I could identify the top drivers as 
+well as top constructors. And for constructors, because there are only 10 of 
+them, I use `facet` to show separate plots for each constructor so that I could
+compare their overall performance side by side, and also pick the top constructor 
+by comparing the value for cumulative points at the final round. For drivers,
+since there are 23 of them, it's better to show the subset of them instead of all.
+So, I pick the top 5 drivers to visualize their cumulative points earned for each
+round to see their overall performance as well as their points trend as the change
+of time(round).
+
+From the plot of constructors, Mercedes has the highest cumulative points after 
+the round of 10 and has the steepest positive slop, which means Mercedes earned 
+more and more points after each round. Red Bull has the second highest cumulative
+points after around round 15. The slop is smaller at the first several rounds and
+then begins to increase rapidly. The value and trend for cumulative points for 
+McLaren and Racing Point are pretty similar, and they have higher points than 
+Renault. In general, Mercedes, Red Bull, McLaren, Racing Point and Renault are 
+top 5 constructors, and Mercedes really stands out and has weigh higher points
+than the rest of them. 
+
+From the plot of drivers, Lewis has the highest cumulative points after round 4.
+Valtteri and Max have similar cumulative points for each round, and Valtteri is 
+a little bit better than Max. Sergio and Daniel have even similar cumulative points
+for each round and Sergio is better than Daniel. In general, Lewis, Valtteri,
+Max, Sergio and Daniel are top 5 drivers, and Lewis really stands out and the 
+cumulative points are weigh higher than the rest of them, while there is fierce 
+competition between Valtteri and Max, as well as between Sergio and Daniel. 
+
+#### Code
+
+```{r task4}
+constructor_table2 <- f1_data %>%
+  select(constructor, round, points) %>%
+  group_by(constructor) %>%
+  #Calculate the cumulative points earned for each round for each constructor
+  mutate(points2 = cumsum(points)) %>%
+  arrange(round)
+constructor_plot <- ggplot(constructor_table2) + 
+  #Use round as x values and cumulative points for each round as y values 
+  geom_point(aes(x = round, 
+                 y = points2,
+                 #Coloring different constructors 
+                 col = constructor)) +
+  labs(title = "Cumulative points earned for each round for each constructor",
+       x = "Round",
+       y = "Points") + 
+  scale_color_viridis_d() + 
+  #Create separate plots for each constructor 
+  facet_grid(.~ constructor) +
+  guides(color = "none")
+#Find the cutoff value for top 5 total points as the threshold 
+threhold <- total_points$points_total[5]
+driver_table2 <- f1_data %>%
+  select(driver, round, points) %>%
+  group_by(driver) %>%
+  #Calculative the cumulative points earned for each round for each driver 
+  mutate(sum_points = cumsum(points),
+         total_points = sum(points)) %>%
+  #Filter the top 5 drivers 
+  filter(total_points >= threhold)
+driver_plot <- ggplot(driver_table2, 
+                      #Use round as x values and cumulative points for each 
+                      #round as y values 
+                      aes(x = round, 
+                          y = sum_points,
+                          col = driver)) + 
+  geom_point() + 
+  geom_line() +
+  labs(title = "Cumulative points earned for each driver for each round",
+       x = "Round",
+       y = "Cumsum points")
+#Put two plots together 
+ggarrange(constructor_plot, driver_plot, ncol = 1, nrow = 2)
+```
+
+<br/>
