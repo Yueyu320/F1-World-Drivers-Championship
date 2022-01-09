@@ -1,14 +1,8 @@
 ---
-title: "Statisitcal Programming - Project 1"
+title: "F1 World Drivers' Championship"
 output: rmarkdown::html_document
 author: Camilla Yu
 ---
-
-Due on Friday, October 15th by 5:00 pm (17:00).
-
-Before you start be sure to read through *all* of the rules and instructions in the `README.md`.
-
-<br/>
 
 ### Data
 
